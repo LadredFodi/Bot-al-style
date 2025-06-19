@@ -4,7 +4,20 @@ import time
 import requests, logging
 import json
 
-from config import TOKEN, TARGET_URL
+from config import TOKEN, TARGET_URL, CLICK_DELAY, SHORT_DELAY, MEDIUM_DELAY, STANDARD_DELAY, PAGE_LOAD_DELAY, LONG_DELAY, ENABLE_DEBUG_LOGS, HEADLESS_MODE, HEADLESS_EXTRA_DELAY, HEADLESS_PAGE_LOAD
+
+
+def debug_log(message):
+    """Функция для контролируемого вывода debug логов"""
+    if ENABLE_DEBUG_LOGS:
+        logging.debug(message)
+
+
+def get_delay(base_delay):
+    """Получить задержку с учетом headless режима"""
+    if HEADLESS_MODE:
+        return base_delay + HEADLESS_EXTRA_DELAY
+    return base_delay
 
 
 def get_cart_articles():
@@ -35,6 +48,60 @@ def safe_click(wait, xpath, timeout=10):
         return False
 
 
+def safe_robust_click(driver, wait, element, element_name="элемент"):
+    """Усиленная функция безопасного клика с множественными попытками"""
+    try:
+        if not element.is_displayed():
+            debug_log(f"{element_name} не отображается")
+            return False
+            
+        if not element.is_enabled():
+            debug_log(f"{element_name} отключен")
+            return False
+        
+        dismiss_overlays(driver)
+        
+        driver.execute_script("arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});", element)
+        time.sleep(get_delay(MEDIUM_DELAY))
+        
+        try:
+            wait.until(EC.element_to_be_clickable(element))
+            element.click()
+            debug_log(f"Успешный клик по {element_name} (обычный)")
+            return True
+        except Exception as e1:
+            debug_log(f"Обычный клик не сработал для {element_name}: {e1}")
+            
+            try:
+                driver.execute_script("arguments[0].click();", element)
+                debug_log(f"Успешный клик по {element_name} (JavaScript)")
+                return True
+            except Exception as e2:
+                debug_log(f"JS клик не сработал для {element_name}: {e2}")
+                
+                try:
+                    from selenium.webdriver.common.action_chains import ActionChains
+                    actions = ActionChains(driver)
+                    actions.move_to_element(element).click().perform()
+                    debug_log(f"Успешный клик по {element_name} (ActionChains)")
+                    return True
+                except Exception as e3:
+                    debug_log(f"ActionChains клик не сработал для {element_name}: {e3}")
+                    
+                    try:
+                        actions = ActionChains(driver)
+                        actions.move_to_element_with_offset(element, 0, 0).click().perform()
+                        debug_log(f"Успешный клик по {element_name} (центр элемента)")
+                        return True
+                    except Exception as e4:
+                        logging.warning(f"Все способы клика не сработали для {element_name}")
+                        return False
+                        
+    except Exception as e:
+        logging.error(f"Критическая ошибка при клике по {element_name}: {e}")
+        return False
+
+
 def safe_find(wait, xpath, timeout=10):
     """Безопасный поиск элемента, если он существует"""
     try:
@@ -61,7 +128,7 @@ def switch_to_new_tab(driver, wait, main_window):
 
 def process_markdown_links(driver, wait):
     """Найти и кликнуть все кнопки markdown-link в текущей вкладке"""
-    time.sleep(2)
+    time.sleep(PAGE_LOAD_DELAY)
     
     markdown_links = driver.find_elements(By.CSS_SELECTOR, "a.markdown-link")
     if not markdown_links:
@@ -72,10 +139,10 @@ def process_markdown_links(driver, wait):
     for idx, link in enumerate(markdown_links, 1):
         try:
             driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", link)
-            time.sleep(0.5)
+            time.sleep(CLICK_DELAY)
             link.click()
             logging.info(f"Кликнули на кнопку markdown-link {idx}")
-            time.sleep(1)
+            time.sleep(CLICK_DELAY)
         except Exception as e:
             logging.error(f"Не удалось кликнуть на кнопку markdown-link {idx}: {e}")
 
@@ -85,12 +152,10 @@ def login(driver, wait, username, password):
     login_url = "https://api.al-style.kz/site/login"
     driver.get(login_url)
     
-    # Проверяем, что мы действительно на странице входа
     if driver.current_url != login_url:
         logging.info("Уже авторизованы, пропускаем вход")
         return True
     
-    # Заполняем форму входа
     email_field = safe_find(wait, '//*[@id="loginform-username"]')
     password_field = safe_find(wait, '//*[@id="loginform-password"]')
     
@@ -101,7 +166,6 @@ def login(driver, wait, username, password):
         if safe_click(wait, '//button[@type="submit" and contains(text(), "Войти на портал")]'):
             logging.info("Форма входа отправлена")
             
-            # Ждем изменения URL (выхода со страницы входа)
             try:
                 wait.until(lambda driver: driver.current_url != login_url)
                 logging.info("Авторизация прошла успешно")
@@ -121,29 +185,39 @@ def navigate_to_target_page(driver, wait):
     driver.get(TARGET_URL)
     logging.info("Перешли на целевую страницу")
     
+    if HEADLESS_MODE:
+        time.sleep(HEADLESS_PAGE_LOAD)
+        logging.info("Дополнительное ожидание для headless режима")
+    
     if safe_click(wait, '//*[@id="notification_modal"]/div/div/div[1]/button'):
         logging.info("Закрыли модальное окно уведомления")
 
-    time.sleep(3)
+    time.sleep(get_delay(LONG_DELAY))
     
     if safe_click(wait, '/html/body/div[3]/div/div/div/div[1]/a[5]'):
         logging.info("Закрыли дополнительное всплывающее окно")
 
 
 def expand_all_categories(driver, wait, subcategories):
-    """Развернуть все кнопки категорий"""
+    """Развернуть все кнопки категорий с улучшенной обработкой ошибок"""
     category_buttons = subcategories.find_elements(By.XPATH, ".//*[contains(@class, 'collapsed') or contains(@class, 'subcategory')]")
     logging.info(f"Найдено {len(category_buttons)} кнопок категорий для развертывания")
     
+    successful_clicks = 0
+    
     for idx, button in enumerate(category_buttons, 1):
         try:
-            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", button)
-            time.sleep(0.5)
-            button.click()
-            logging.info(f"Развернули кнопку категории {idx}")
-            time.sleep(1)
+            if safe_robust_click(driver, wait, button, f"кнопка категории {idx}"):
+                successful_clicks += 1
+                logging.info(f"Успешно развернули кнопку категории {idx}")
+                time.sleep(CLICK_DELAY)
+            else:
+                logging.warning(f"Не удалось развернуть кнопку категории {idx}")
+                
         except Exception as e:
-            logging.error(f"Не удалось развернуть кнопку категории {idx}: {e}")
+            logging.error(f"Критическая ошибка при обработке кнопки категории {idx}: {e}")
+    
+    logging.info(f"Успешно развернуто {successful_clicks} из {len(category_buttons)} кнопок категорий")
 
 
 def click_all_markdown_links(driver, wait, subcategories):
@@ -155,10 +229,10 @@ def click_all_markdown_links(driver, wait, subcategories):
         if idx % 3 == 1 or idx == 1:
             try:
                 driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", link)
-                time.sleep(0.3)
+                time.sleep(MEDIUM_DELAY)
                 link.click()
                 logging.info(f"Кликнули на markdown-link {idx}")
-                time.sleep(1)
+                time.sleep(CLICK_DELAY)
             except Exception as e:
                 logging.error(f"Не удалось кликнуть на markdown-link {idx}: {e}")
 
@@ -175,7 +249,7 @@ def click_all_plus_buttons(driver, wait):
     for idx, row in enumerate(product_rows, 1):
         try:
             driver.execute_script("arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});", row)
-            time.sleep(0.3)
+            time.sleep(MEDIUM_DELAY)
             
             try:
                 article_element = row.find_element(By.CSS_SELECTOR, "td.text-center.article.up-arrow span span")
@@ -200,25 +274,46 @@ def click_all_plus_buttons(driver, wait):
                 quantity = 1
             
 
-            time.sleep(1)
+            time.sleep(STANDARD_DELAY)
             plus_button = row.find_element(By.CSS_SELECTOR, "td.text-center div.cart-control i.cart-control-btn.cart-plus.icon-plus")
             
             for click_num in range(quantity):
                 plus_button.click()
                 logging.info(f"Кликнули на кнопку плюс для товара со скидкой {idx} ({click_num+1}/{quantity})")
-                time.sleep(0.2)
+                time.sleep(SHORT_DELAY)
             
         except Exception as e:
             logging.error(f"Не удалось обработать строку товара со скидкой {idx}: {e}")
 
 
 def dismiss_overlays(driver):
+    """Улучшенная функция для скрытия перекрывающих элементов"""
     try:
-        overlays = driver.find_elements(By.XPATH, "//*[contains(@class,'overlay') or contains(@class,'modal')]")
-        for overlay in overlays:
-            driver.execute_script("arguments[0].style.display='none'", overlay)
+        overlay_selectors = [
+            "//*[contains(@class,'overlay')]",
+            "//*[contains(@class,'modal')]", 
+            "//*[contains(@class,'popup')]",
+            "//*[contains(@class,'backdrop')]",
+            "//*[contains(@class,'mask')]",
+            "//*[contains(@style,'position: fixed')]",
+            "//*[contains(@style,'z-index')][@style[contains(.,'999')]]"
+        ]
+        
+        overlays_found = 0
+        for selector in overlay_selectors:
+            overlays = driver.find_elements(By.XPATH, selector)
+            for overlay in overlays:
+                if overlay.is_displayed():
+                    driver.execute_script("arguments[0].style.display='none'", overlay)
+                    driver.execute_script("arguments[0].style.visibility='hidden'", overlay)
+                    driver.execute_script("arguments[0].remove()", overlay)
+                    overlays_found += 1
+        
+        if overlays_found > 0:
+            debug_log(f"Скрыто {overlays_found} перекрывающих элементов")
+            
     except Exception as e:
-        logging.debug(f"Не удалось скрыть оверлей: {e}")
+        debug_log(f"Не удалось скрыть оверлей: {e}")
 
 
 def handle_category_selection(driver, wait):
@@ -227,15 +322,13 @@ def handle_category_selection(driver, wait):
     for attempt in range(max_attempts):
         try:
             dismiss_overlays(driver)
-            time.sleep(1)
+            time.sleep(STANDARD_DELAY)
             
             category_button = wait.until(
                 EC.presence_of_element_located((By.XPATH, '/html/body/div[4]/div[2]/div[3]/div[10]/a[1]'))
             )
             driver.execute_script("arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});", category_button)
-            time.sleep(1)
             
-            # Пробуем разные способы клика
             try:
                 category_button.click()
             except:
@@ -247,15 +340,15 @@ def handle_category_selection(driver, wait):
             logging.warning(f"Попытка {attempt + 1} из {max_attempts} не удалась: {e}")
             if attempt == max_attempts - 1:
                 raise
-            time.sleep(2)
+            time.sleep(PAGE_LOAD_DELAY)
     
-    time.sleep(1)
+    time.sleep(STANDARD_DELAY)
     
-    # Дальнейшая обработка подкатегорий
     subcategories = safe_find(wait, "/html/body/div[4]/div[2]/div[3]/div[13]")
     if subcategories:
         logging.info("Найден контейнер подкатегорий")
         expand_all_categories(driver, wait, subcategories)
+        time.sleep(STANDARD_DELAY)
         click_all_markdown_links(driver, wait, subcategories)
+        time.sleep(STANDARD_DELAY)
         click_all_plus_buttons(driver, wait)
-
