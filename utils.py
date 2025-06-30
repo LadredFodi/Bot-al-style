@@ -4,7 +4,7 @@ import time
 import requests, logging
 import json
 
-from config import TOKEN, TARGET_URL, CLICK_DELAY, SHORT_DELAY, MEDIUM_DELAY, STANDARD_DELAY, PAGE_LOAD_DELAY, LONG_DELAY, ENABLE_DEBUG_LOGS, HEADLESS_MODE, HEADLESS_EXTRA_DELAY, HEADLESS_PAGE_LOAD
+from config import TOKEN, TARGET_URL, CLICK_DELAY, SHORT_DELAY, MEDIUM_DELAY, STANDARD_DELAY, PAGE_LOAD_DELAY, LONG_DELAY, ENABLE_DEBUG_LOGS, HEADLESS_MODE, HEADLESS_EXTRA_DELAY, HEADLESS_PAGE_LOAD, SUBCATEGORIES_DATA_ID
 
 
 def debug_log(message):
@@ -200,7 +200,8 @@ def navigate_to_target_page(driver, wait):
 
 def expand_all_categories(driver, wait, subcategories):
     """Развернуть все кнопки категорий с улучшенной обработкой ошибок"""
-    category_buttons = subcategories.find_elements(By.XPATH, ".//*[contains(@class, 'collapsed') or contains(@class, 'subcategory')]")
+
+    category_buttons = subcategories.find_elements(By.XPATH, ".//*[contains(@class, 'collapsed') or contains(@class, 'sub-category')]")
     logging.info(f"Найдено {len(category_buttons)} кнопок категорий для развертывания")
     
     successful_clicks = 0
@@ -316,6 +317,49 @@ def dismiss_overlays(driver):
         debug_log(f"Не удалось скрыть оверлей: {e}")
 
 
+def find_subcategories_by_data_id(driver, wait, data_id):
+    """Поиск контейнера subcategories по data-id"""
+    try:
+        element_with_data_id = wait.until(
+            EC.presence_of_element_located((By.XPATH, f"//*[@data-id='{data_id}']"))
+        )
+        logging.info(f"Найден элемент с data-id='{data_id}'")
+        
+        try:
+            subcategories_container = element_with_data_id.find_element(
+                By.XPATH, "./following-sibling::*[contains(@class, 'sub-categories')]"
+            )
+            logging.info("Найден контейнер subcategories через following-sibling")
+            return subcategories_container
+        except:
+            pass
+        try:
+            parent = element_with_data_id.find_element(By.XPATH, "./..")
+            subcategories_container = parent.find_element(
+                By.XPATH, ".//*[contains(@class, 'sub-categories')]"
+            )
+            logging.info("Найден контейнер subcategories через родительский элемент")
+            return subcategories_container
+        except:
+            pass
+        
+        try:
+            subcategories_container = driver.find_element(
+                By.XPATH, f"//*[contains(@class, 'children{data_id}')]"
+            )
+            logging.info(f"Найден контейнер subcategories с классом children{data_id}")
+            return subcategories_container
+        except:
+            pass
+        
+        logging.warning(f"Специальный контейнер subcategories не найден, возвращаем элемент с data-id='{data_id}'")
+        return element_with_data_id
+        
+    except Exception as e:
+        logging.error(f"Не удалось найти элемент с data-id='{data_id}': {e}")
+        return None
+
+
 def handle_category_selection(driver, wait):
     """Обработка выбора категории и подкатегории с разделенной логикой"""
     max_attempts = 3
@@ -344,11 +388,14 @@ def handle_category_selection(driver, wait):
     
     time.sleep(STANDARD_DELAY)
     
-    subcategories = safe_find(wait, "/html/body/div[4]/div[2]/div[3]/div[13]")
+    subcategories = find_subcategories_by_data_id(driver, wait, SUBCATEGORIES_DATA_ID)
+    
     if subcategories:
-        logging.info("Найден контейнер подкатегорий")
+        logging.info(f"Найден контейнер подкатегорий с data-id='{SUBCATEGORIES_DATA_ID}'")
         expand_all_categories(driver, wait, subcategories)
         time.sleep(STANDARD_DELAY)
         click_all_markdown_links(driver, wait, subcategories)
         time.sleep(STANDARD_DELAY)
         click_all_plus_buttons(driver, wait)
+    else:
+        logging.error(f"Не удалось найти subcategories с data-id='{SUBCATEGORIES_DATA_ID}'")
