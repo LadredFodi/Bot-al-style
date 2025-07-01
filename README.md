@@ -106,10 +106,16 @@ HEADLESS_PAGE_LOAD = 5      # Время загрузки страниц в head
 
 ### Отладка
 
-Для включения детального логирования:
+Для настройки уровня логирования измените параметр level в main.py:
 
 ```python
-ENABLE_DEBUG_LOGS = True
+logging.basicConfig(
+    level=logging.DEBUG,  # Для детального логирования
+    # level=logging.INFO,  # Для основной информации
+    # level=logging.WARNING,  # Только для предупреждений и ошибок
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 ```
 
 ## Алгоритм работы
