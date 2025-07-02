@@ -5,7 +5,11 @@ import time
 import requests, logging
 import json
 
-from config import TOKEN, TARGET_URL, CLICK_DELAY, SHORT_DELAY, MEDIUM_DELAY, STANDARD_DELAY, PAGE_LOAD_DELAY, LONG_DELAY, HEADLESS_MODE, HEADLESS_EXTRA_DELAY, HEADLESS_PAGE_LOAD, SUBCATEGORIES_DATA_ID, CATEGORY_HIERARCHY
+from config import (TOKEN, TARGET_URL, CLICK_DELAY,
+                    SHORT_DELAY, MEDIUM_DELAY, STANDARD_DELAY,
+                    PAGE_LOAD_DELAY, LONG_DELAY, HEADLESS_MODE, 
+                    HEADLESS_EXTRA_DELAY, HEADLESS_PAGE_LOAD, SUBCATEGORIES_DATA_ID, 
+                    CATEGORY_HIERARCHY, ORDERING)
 
 
 
@@ -394,9 +398,10 @@ def handle_category_selection(driver, wait):
             logging.info("Markdown-ссылки не найдены на текущей странице")
             
         time.sleep(STANDARD_DELAY)
-        # ================================
-        #process_cart(driver, wait)
-        # ================================
+        
+        if ORDERING:
+            process_cart(driver, wait)
+        
     except Exception as e:
         logging.error(f"Ошибка при обработке категорий: {str(e)}")
 
