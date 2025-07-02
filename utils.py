@@ -5,11 +5,7 @@ import time
 import requests, logging
 import json
 
-from config import (TOKEN, TARGET_URL, CLICK_DELAY,
-                    SHORT_DELAY, MEDIUM_DELAY, STANDARD_DELAY,
-                    PAGE_LOAD_DELAY, LONG_DELAY, HEADLESS_MODE, 
-                    HEADLESS_EXTRA_DELAY, HEADLESS_PAGE_LOAD, SUBCATEGORIES_DATA_ID, 
-                    CATEGORY_HIERARCHY, ORDERING)
+from config import TOKEN, TARGET_URL, CLICK_DELAY, SHORT_DELAY, MEDIUM_DELAY, STANDARD_DELAY, PAGE_LOAD_DELAY, LONG_DELAY, HEADLESS_MODE, HEADLESS_EXTRA_DELAY, HEADLESS_PAGE_LOAD, SUBCATEGORIES_DATA_ID, CATEGORY_HIERARCHY
 
 
 
@@ -398,10 +394,9 @@ def handle_category_selection(driver, wait):
             logging.info("Markdown-ссылки не найдены на текущей странице")
             
         time.sleep(STANDARD_DELAY)
-        
-        if ORDERING:
-            process_cart(driver, wait)
-        
+        # ================================
+        process_cart(driver, wait)
+        # ================================
     except Exception as e:
         logging.error(f"Ошибка при обработке категорий: {str(e)}")
 
@@ -416,14 +411,10 @@ def click_all_markdown_links(driver, wait, container):
             
         logging.info(f"Найдено {len(markdown_links)} ссылок markdown")
         
-        # Фильтруем только видимые и доступные ссылки
-        visible_links = [
-            link for link in markdown_links 
-            if link.is_displayed() and link.is_enabled()
-        ]
+
         
         # Кликаем по отфильтрованным ссылкам
-        for idx, link in enumerate(visible_links, 1):
+        for idx, link in enumerate(markdown_links, 1):
             if idx % 3 == 1 or idx == 1:
                 try:
                     # Быстрый скролл и клик
